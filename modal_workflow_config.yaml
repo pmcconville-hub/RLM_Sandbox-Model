@@ -1,0 +1,165 @@
+# =============================================================================
+# Modal Sandbox Workflow Configuration
+# =============================================================================
+# For: SVCSTACK / Paul McConville
+# Created: 2026-02-09
+# Repository: RLM_Sandbox-Model
+#
+# This file documents how to use, monitor, and manage the RLM Modal sandbox.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 1. HOW TO START THE SANDBOX
+# ---------------------------------------------------------------------------
+setup:
+  # Step 1: Create and activate virtual environment
+  create_venv: |
+    cd ~/projects/modal-sandbox/RLM_Sandbox-Model
+    uv venv --python 3.12
+    source .venv/bin/activate
+
+  # Step 2: Install dependencies (inside venv, NOT system-wide)
+  install: |
+    uv pip install -e ".[modal]"
+
+  # Step 3: Authenticate with Modal (one-time, requires browser)
+  authenticate: |
+    modal setup
+    # This opens a browser window to log into modal.com
+    # Your token is stored in ~/.modal.toml
+
+  # Step 4: Verify connection
+  verify: |
+    python modal_sandbox_runner.py --test
+
+  # Step 5: Run the demo
+  demo: |
+    python modal_sandbox_runner.py --demo
+
+# ---------------------------------------------------------------------------
+# 2. HOW TO PASS FILES/CONTEXT INTO THE SANDBOX
+# ---------------------------------------------------------------------------
+passing_context:
+  # Method 1: String context (for text/documents)
+  string_example: |
+    from rlm import RLM
+    rlm = RLM(
+        backend="anthropic",
+        backend_kwargs={"model_name": "claude-sonnet-4-5-20250929", "api_key": "your-key"},
+        environment="modal",
+        environment_kwargs={"app_name": "rlm-svcstack"},
+        verbose=True,
+    )
+    result = rlm.completion("Your document text here as a string")
+
+  # Method 2: Dict context (for structured data like from Airtable)
+  dict_example: |
+    context = {
+        "businesses": [...],  # From Airtable
+        "query": "Analyse SEO performance for these veteran businesses"
+    }
+    result = rlm.completion(context)
+
+  # Method 3: List context (for multiple documents)
+  list_example: |
+    documents = ["doc1 text...", "doc2 text...", "doc3 text..."]
+    result = rlm.completion(documents)
+
+# ---------------------------------------------------------------------------
+# 3. HOW TO RETRIEVE RESULTS
+# ---------------------------------------------------------------------------
+retrieving_results:
+  # The completion() call returns an RLMChatCompletion object
+  basic: |
+    result = rlm.completion(prompt)
+    print(result.response)         # The final answer string
+    print(result.execution_time)   # How long it took (seconds)
+    print(result.usage_summary)    # Token usage breakdown
+
+  # With logging (saves full trajectory for debugging)
+  with_logging: |
+    from rlm.logger import RLMLogger
+    logger = RLMLogger(log_dir="./logs")
+    rlm = RLM(..., logger=logger)
+    result = rlm.completion(prompt)
+    # Check ./logs/ for .jsonl trajectory files
+
+# ---------------------------------------------------------------------------
+# 4. COST MONITORING ($30/month Modal budget)
+# ---------------------------------------------------------------------------
+cost_monitoring:
+  # Modal billing dashboard
+  dashboard_url: "https://modal.com/settings/billing"
+
+  # Estimated costs per sandbox session
+  estimates:
+    sandbox_startup: "$0.001-0.005"  # Creating the container
+    per_minute_compute: "$0.01-0.03"  # Depends on CPU/memory
+    tunnel_overhead: "negligible"
+    typical_test_run: "$0.01-0.05"   # A few minutes of compute
+    budget_allows: "~600-3000 test runs per month at $30"
+
+  # Budget protection settings
+  safety:
+    max_timeout_seconds: 600         # 10 minutes max per sandbox
+    recommended_timeout: 300         # 5 minutes for most tasks
+    set_modal_spending_limit: true   # Set in Modal dashboard
+    modal_spending_limit_url: "https://modal.com/settings/billing"
+
+  # Check current usage
+  check_usage: |
+    # Via Modal CLI
+    modal app list
+    # Via dashboard
+    # https://modal.com/apps
+
+# ---------------------------------------------------------------------------
+# 5. EMERGENCY SHUTDOWN
+# ---------------------------------------------------------------------------
+emergency_shutdown:
+  # Kill all running sandboxes immediately
+  kill_all: |
+    modal app stop rlm-svcstack-test
+    modal app stop rlm-svcstack-demo
+    modal app stop rlm-svcstack
+
+  # Kill specific sandbox
+  kill_specific: |
+    modal app list                     # Find the app name
+    modal app stop <app-name>          # Stop it
+
+  # Nuclear option: stop everything on your Modal account
+  stop_everything: |
+    modal app list | grep rlm | awk '{print $1}' | xargs -I {} modal app stop {}
+
+  # If CLI is not working, use the dashboard
+  dashboard_url: "https://modal.com/apps"
+
+# ---------------------------------------------------------------------------
+# 6. SECURITY NOTES
+# ---------------------------------------------------------------------------
+security:
+  # What runs WHERE
+  local_machine:
+    - "RLM orchestration logic"
+    - "LMHandler (TCP server on localhost only)"
+    - "Modal poller thread"
+    - "LLM API calls (to OpenAI/Anthropic/etc.)"
+
+  modal_sandbox:
+    - "All user code execution (exec())"
+    - "Flask broker server"
+    - "State serialization (dill)"
+    - "Data science libraries (numpy, pandas, etc.)"
+
+  # What NEVER leaves your machine
+  stays_local:
+    - "API keys (environment variables)"
+    - "Modal auth token (~/.modal.toml)"
+    - "Local file system access"
+
+  # Communication is encrypted
+  encryption:
+    - "Modal tunnels use encrypted_ports (HTTPS)"
+    - "LLM API calls use HTTPS"
+    - "Only localhost TCP for LMHandler"
